@@ -38,28 +38,7 @@ public class DefaultWorldEntitySpawner : IWorldEntitySpawner, IWorldEntitySyncSp
 
         CrafterLogic.NotifyCraftEnd(gameObject, techType);
 
-        WaterPark parentWaterPark = null;
-        if (parent.HasValue)
-        {
-            Items.TryGetParentWaterPark(parent.Value.transform.parent, out parentWaterPark);
-        }
-
-        if (!parentWaterPark)
-        {
-            if (parent.HasValue && !parent.Value.GetComponent<LargeWorldEntityCell>())
-            {
-                LargeWorldEntity.Register(gameObject); // This calls SetActive on the GameObject
-            }
-            else if (gameObject.GetComponent<LargeWorldEntity>() && !gameObject.transform.parent && cellRoot.liveRoot)
-            {
-                gameObject.transform.SetParent(cellRoot.liveRoot.transform, true);
-                LargeWorldEntity.Register(gameObject);
-            }
-            else
-            {
-                gameObject.SetActive(true);
-            }
-        }
+        WaterPark parentWaterPark = parent.HasValue ? parent.Value.GetComponent<WaterPark>() : null;
 
         if (parent.HasValue)
         {
@@ -72,6 +51,23 @@ public class DefaultWorldEntitySpawner : IWorldEntitySpawner, IWorldEntitySyncSp
             else
             {
                 gameObject.transform.SetParent(parent.Value.transform, true);
+            }
+        }
+
+        if (!parentWaterPark)
+        {
+            if (parent.HasValue && !parent.Value.GetComponent<LargeWorldEntityCell>())
+            {
+                LargeWorldEntity.Register(gameObject); // This calls SetActive on the GameObject
+            }
+            else if (gameObject.GetComponent<LargeWorldEntity>() && cellRoot.liveRoot)
+            {
+                gameObject.transform.SetParent(cellRoot.liveRoot.transform, true);
+                LargeWorldEntity.Register(gameObject);
+            }
+            else
+            {
+                gameObject.SetActive(true);
             }
         }
     }
