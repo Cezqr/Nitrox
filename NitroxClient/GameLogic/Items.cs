@@ -37,7 +37,13 @@ public class Items
         this.entityMetadataManager = entityMetadataManager;
     }
 
-    public void PickedUp(GameObject gameObject, TechType techType)
+    public void UpdatePosition(NitroxId id, Vector3 location, Quaternion rotation)
+    {
+        ItemPosition itemPosition = new ItemPosition(id, location.ToDto(), rotation.ToDto());
+        packetSender.Send(itemPosition);
+    }
+
+    public void PickedUp(GameObject gameObject, TechType techType, Optional<Transform> container)
     {
         PickingUpObject = gameObject;
 
@@ -70,6 +76,38 @@ public class Items
         {
             Log.Error(exception);
         }
+
+        EntityPositionBroadcaster.StopWatchingEntity(id);
+
+        InventoryItemEntity inventoryItemEntity;
+        if (container.HasValue)
+        {
+            if (container.Value.TryGetNitroxId(out NitroxId containerId))
+            {
+                inventoryItemEntity = ConvertToInventoryItemEntity(gameObject, containerId, entityMetadataManager);
+            }
+            else
+            {
+                Log.Error($"Container {container.Value.name} did not have an id");
+                return;
+            }
+        }
+        else
+        {
+            // Put item in the player's inventory by default
+            inventoryItemEntity = ConvertToInventoryItemEntity(gameObject, entityMetadataManager);
+        }
+
+        // Some picked up entities are not known by the server for several reasons.  First it can be picked up via a spawn item command.  Another
+        // example is that some obects are not 'real' objects until they are clicked and end up spawning a prefab.  For example, the fire extinguisher
+        // in the escape pod (mono: IntroFireExtinguisherHandTarget) or Creepvine seeds (mono: PickupPrefab).  When clicked, these spawn new prefabs
+        // directly into the player's inventory.  These will ultimately be registered server side with the above inventoryItemEntity.
+        entities.MarkAsSpawned(inventoryItemEntity);
+
+        Log.Debug($"PickedUp {id} {techType}");
+
+        PickupItem pickupItem = new(id, inventoryItemEntity);
+        packetSender.Send(pickupItem);
         PickingUpObject = null;
     }
 
@@ -239,13 +277,24 @@ public class Items
 
     public static InventoryItemEntity ConvertToInventoryItemEntity(GameObject gameObject, NitroxId parentId, EntityMetadataManager entityMetadataManager)
     {
+        // Place newly created object into the player's inventory
+        if (!Player.main.TryGetNitroxId(out NitroxId ownerId))
+        {
+            throw new InvalidOperationException("[Items] Player has no id! Couldn't parent InventoryItem.");
+        }
+
+        return ConvertToInventoryItemEntity(gameObject, ownerId, entityMetadataManager);
+    }
+
+    public static InventoryItemEntity ConvertToInventoryItemEntity(GameObject gameObject, NitroxId containerId, EntityMetadataManager entityMetadataManager)
+    {
         NitroxId itemId = NitroxEntity.GetIdOrGenerateNew(gameObject); // id may not exist, create if missing
         string classId = gameObject.RequireComponent<PrefabIdentifier>().ClassId;
         TechType techType = gameObject.RequireComponent<Pickupable>().GetTechType();
         Optional<EntityMetadata> metadata = entityMetadataManager.Extract(gameObject);
         List<Entity> children = GetPrefabChildren(gameObject, itemId, entityMetadataManager).ToList();
 
-        InventoryItemEntity inventoryItemEntity = new(itemId, classId, techType.ToDto(), metadata.OrNull(), parentId, children);
+        InventoryItemEntity inventoryItemEntity = new(itemId, classId, techType.ToDto(), metadata.OrNull(), containerId, children);
         BatteryChildEntityHelper.TryPopulateInstalledBattery(gameObject, inventoryItemEntity.ChildEntities, itemId);
 
         return inventoryItemEntity;

@@ -1,5 +1,4 @@
 using NitroxClient.Communication.Abstract;
-using NitroxModel_Subnautica.DataStructures;
 using NitroxModel.DataStructures;
 using NitroxModel_Subnautica.Packets;
 using UnityEngine;
@@ -12,13 +11,16 @@ public class ExosuitModuleEvent
     private static readonly int bashAnimation = Animator.StringToHash("bash");
 
     private readonly IPacketSender packetSender;
+    private readonly SimulationOwnership simulationOwnership;
 
-    public ExosuitModuleEvent(IPacketSender packetSender)
+    public ExosuitModuleEvent(IPacketSender packetSender, SimulationOwnership simulationOwnership)
     {
         this.packetSender = packetSender;
+        this.simulationOwnership = simulationOwnership;
     }
 
-    public void BroadcastClawUse(ExosuitClawArm clawArm, float cooldown)
+
+    public void BroadcastClawUse(Exosuit exosuit, ExosuitClawArm clawArm, float cooldown)
     {
         ExosuitArmAction action;
 
@@ -37,7 +39,21 @@ public class ExosuitModuleEvent
             return;
         }
 
-        BroadcastArmAction(TechType.ExosuitClawArmModule, clawArm, action, null, null);
+        BroadcastArmAction(TechType.ExosuitClawArmModule, exosuit, clawArm, action);
+    }
+
+    public void BroadcastArmAction(TechType techType, Exosuit exosuit, IExosuitArm exosuitArm, ExosuitArmAction armAction)
+    {
+        if (exosuit.TryGetIdOrWarn(out NitroxId id) && simulationOwnership.HasAnyLockType(id))
+        {
+            ExosuitArmActionPacket packet = new(techType, id, GetArmSide(exosuitArm), armAction);
+            packetSender.Send(packet);
+        }
+    }
+
+    public static Exosuit.Arm GetArmSide(IExosuitArm arm)
+    {
+        return arm.GetGameObject().transform.localScale.x > 0 ? Exosuit.Arm.Left : Exosuit.Arm.Right;
     }
 
     public static void UseClaw(ExosuitClawArm clawArm, ExosuitArmAction armAction)
@@ -72,25 +88,7 @@ public class ExosuitModuleEvent
         }
     }
 
-    public void BroadcastArmAction(TechType techType, IExosuitArm exosuitArm, ExosuitArmAction armAction, Vector3? opVector, Quaternion? opRotation)
-    {
-        if (exosuitArm.GetGameObject().TryGetIdOrWarn(out NitroxId id))
-        {
-            ExosuitArmActionPacket packet = new(techType, id, armAction, opVector?.ToDto(), opRotation?.ToDto());
-            packetSender.Send(packet);
-        }
-    }
-
-    public void BroadcastArmAction(TechType techType, IExosuitArm exosuitArm, ExosuitArmAction armAction)
-    {
-        if (exosuitArm.GetGameObject().TryGetIdOrWarn(out NitroxId id))
-        {
-            ExosuitArmActionPacket packet = new(techType, id, armAction, null, null);
-            packetSender.Send(packet);
-        }
-    }
-
-    public static void UseGrappling(ExosuitGrapplingArm grapplingArm, ExosuitArmAction armAction, Vector3? opHitVector)
+    public static void UseGrappling(ExosuitGrapplingArm grapplingArm, ExosuitArmAction armAction)
     {
         switch (armAction)
         {
@@ -113,13 +111,6 @@ public class ExosuitModuleEvent
                 hook.SetFlying(true);
                 Exosuit componentInParent = grapplingArm.GetComponentInParent<Exosuit>();
 
-                if (!opHitVector.HasValue)
-                {
-                    Log.Error("No vector given that contains the hook direction");
-                    return;
-                }
-
-                hook.rb.velocity = opHitVector.Value;
                 Utils.PlayFMODAsset(grapplingArm.shootSound, grapplingArm.front, 15f);
                 grapplingArm.grapplingStartPos = componentInParent.transform.position;
                 break;
